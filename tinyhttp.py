@@ -1,3 +1,4 @@
+import re
 import errno
 import select
 import socket
@@ -48,7 +49,22 @@ class TinyHTTP(object):
         return res
 
     def split_url(self, url):
-        pass
+        regexp = r'([^:/?#]+)://([^/?#]*)([^#]*)'
+        g = re.match(regexp, url)
+        if g is not None:
+            scheme, host, path_query = g.groups()
+        else:
+            raise RuntimeError("Can not parse URL: %s" % url)
+
+        scheme = scheme.lower()
+        if not path_query.startswith("/") : path_query = "/%s" % path_query
+
+        auth = ""
+        pos = host.find("@")
+        if pos != -1:
+            auth = comming soon
+
+
 
     def _request(self, method, url, args):
         scheme, host, port, path_query, auth = self.split_url(url)
