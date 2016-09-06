@@ -62,9 +62,17 @@ class TinyHTTP(object):
         auth = ""
         pos = host.find("@")
         if pos != -1:
-            auth = comming soon
-
-
+            auth = host[:pos]
+            host = host[pos + 1:]
+        #Todo: fix persent escape
+        g = re.search(r":(\d+)$", host)
+        port = None
+        if g is not None:
+            port = g.group(1)
+            host = re.sub(r":\d+$", "", host)
+        else:
+            port = 443 if scheme == 'https' else 80
+        return (scheme, host, port, path_query, auth)
 
     def _request(self, method, url, args):
         scheme, host, port, path_query, auth = self.split_url(url)
