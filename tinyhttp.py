@@ -27,6 +27,46 @@ class TinyHandler(object):
     def __init__(self, timeout, keep_alive):
         self.timeout = timeout
         self.keep_alive = keep_alive
+        self.rbuf = ""
+
+    def read(self, length):
+        buf = ""
+        got = len(self,rbuf)
+
+        if got:
+            pass
+
+    def read_line(self):
+        pass
+
+    def read_response_headers(self):
+        pass
+
+    def read_response_body(self):
+        pass
+
+    def write(self, buf):
+        """write buffer to socket"""
+        length = len(buf)
+        sent = 0
+        while sent < length:
+            if not self.can_write():
+                raise Exception("Timed out while waitting for socket to become"
+                                " ready for writting\n")
+            try:
+                just_sent = self._ist['fh'].send(buf[sent:])
+                if just_sent == 0:
+                    raise RuntimeError("socket connection broken")
+                sent += just_sent
+            except socket.error as e:
+                if isinstance(e.args, tuple):
+                    if e[0] == errno.EPIPE:
+                        raise RuntimeError("Socket closed by remote server")
+                else:
+                    raise
+            except Exception:
+                raise
+        return sent
 
     def connect(self, scheme, host, port, peer):
         if scheme == "https":
@@ -48,11 +88,16 @@ class TinyHandler(object):
     def can_write(self):
         self.do_timeout("write", self.timeout)
 
+    def can_read(self):
+        self.do_timeout("read", self.timeout)
+
     def do_timeout(self, mode, timeout):
         """ simple timeout using select."""
 
         fd_set = [self._ist['fh']]
-        found = select.select(fd_set, [], [], timeout) if mode == 'read' else select.select([], fd_set, [], timeout)
+        found = select.select(
+            fd_set, [], [], timeout) if mode == 'read' else select.select(
+                [], fd_set, [], timeout)
         return found
 
     def get_header_name(self, header):
@@ -64,8 +109,9 @@ class TinyHandler(object):
         if request['content']: self.write_request_body()
 
     def write_request_header(self, method, uri, headers):
-        buf = ""
+        buf = "{} {} HTTP/1.1{}".format(method.upper(), uri, self.rn)
         seen = {}
+
         for i in ['host', 'cache-control', 'expect', 'max-forwards',
                   'pragma', 'range', 'te']:
             if i not in headers:
@@ -171,6 +217,12 @@ class TinyHTTP(object):
         self._prepare_headers(request, args, url, auth)
         handler = TinyHandler()
         handler.write_request(request)
+
+        response = handler.read_response_headers()
+        body = handler.read_response_body()
+        response["body"] = body
+        return response
+
 
     def _prepare_headers(self, request, args, url, auth):
         for k, v in args['headers'].items():
