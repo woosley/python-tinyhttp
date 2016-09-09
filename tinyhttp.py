@@ -5,11 +5,16 @@ import socket
 from functools import partial
 
 class TinyHandler(object):
-    rfc_request_headers = """Accept Accept-Charset Accept-Encoding
-    Accept-Language Authorization Cache-Control Connection Content-Length Expect
-    From Host If-Match If-Modified-Since If-None-Match If-Range
-    If-Unmodified-Since Max-Forwards Pragma Proxy-Authorization Range Referer TE
-    Trailer Transfer-Encoding Upgrade User-Agent Via""".split()
+
+    rfc_request_headers = ['Accept', 'Accept-Charset', 'Accept-Encoding',
+                           'Accept-Language', 'Authorization', 'Cache-Control',
+                           'Connection', 'Content-Length', 'Expect', 'From',
+                           'Host', 'If-Match', 'If-Modified-Since',
+                           'If-None-Match', 'If-Range', 'If-Unmodified-Since',
+                           'Max-Forwards', 'Pragma', 'Proxy-Authorization',
+                           'Range', 'Referer', 'TE', 'Trailer',
+                           'Transfer-Encoding', 'Upgrade', 'User-Agent', 'Via']
+
 
     other_request_headers = """Content-Encoding Content-MD5 Content-Type Cookie
     DNT Date Origin X-XSS-Protection""".split()
@@ -28,19 +33,80 @@ class TinyHandler(object):
         self.timeout = timeout
         self.keep_alive = keep_alive
         self.rbuf = ""
+        self.max_header_lines = 100
 
     def read(self, length):
         buf = ""
-        got = len(self,rbuf)
+        got = len(self.rbuf)
 
         if got:
             pass
 
-    def read_line(self):
+    def readline(self):
         pass
 
-    def read_response_headers(self):
-        pass
+    def read_response_header(self):
+        line = self.readline()
+
+        regexp = re.compile(
+            r"""\A(HTTP\/(0\d+\.0*))        # HTTP/1.1
+                [\x09\x20+ ([0-9]{3})       # 200
+                [\x09\x20]+ ([^\x0D\x0A]]*) # OK
+                \x0D?\x0A]                  # \r\n """)
+
+        g = re.search(regexp, line)
+        if g is None:
+            raise RuntimeError("Malformed Status-Line: {}\n".format(line))
+        protocol, version, status, reason = g.groups()
+
+        if re.search(r"0*1\.0*[01]", protocol) is None:
+            raise Exception("Unsupported HTTP protocol: {}".format(protocol))
+
+        return {
+            "status": status,
+            "reason": reason,
+            "headers": self.read_header_lines(),
+            "protocol": protocol,
+        }
+
+    def read_header_lines(self, headers=None):
+        headers = headers or {}
+        # regexp for header line
+        headerre = re.compile(r"\A([^\x00-\x1F\x7F:]):[\x09\x20]*([^\x0D\x0A]*)")
+        continuere = re.compile(r"\A[\x09\x20]+([^\x0D\x0A])*")
+        count = 0
+        pre_field = ""
+        while True:
+            count += 1
+            if count > self.max_header_lines:
+                raise Exception("Header lines exceedes maximum number allowed")
+            line = self.readline()
+            g = re.search(headerre, line)
+            if g is not None:
+                field_name = g.group(1).lower()
+                #TODO: checkhere
+                var = g.group(2)
+                if field_name in headers:
+                    headers[field_name].append(var)
+                else:
+                    headers[field_name] = [var]
+                pre_field = field_name
+                continue
+            g = re.search(continuere, line)
+            if g is not None:
+                # this is a continue line
+                if not pre_field:
+                    raise Exception("Unexpected header continue line")
+                if not len(g.group(1)): continue
+                if len(headers[pre_field][-1]):
+                    headers[pre_field][-1] += " "
+                # append this line to the end of last header value
+                headers[pre_field][-1] += g.group(1)
+                continue
+            if re.search(r"\A\x0D?\x0A\z", line) is not None:
+                break
+            raise Exception("Malformed header line: {}".format(line))
+        return headers
 
     def read_response_body(self):
         pass
@@ -218,7 +284,7 @@ class TinyHTTP(object):
         handler = TinyHandler()
         handler.write_request(request)
 
-        response = handler.read_response_headers()
+        response = handler.read_response_header()
         body = handler.read_response_body()
         response["body"] = body
         return response
