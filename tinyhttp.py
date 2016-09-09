@@ -34,16 +34,62 @@ class TinyHandler(object):
         self.keep_alive = keep_alive
         self.rbuf = ""
         self.max_header_lines = 100
+        self.bufsize = 33328
+        self._ist = {}
 
-    def read(self, length):
+    def read(self, length, allow_partial=False):
+        """ read from socket
+
+        This function read length bites from socket, if there are already
+        buffered data, read from buffer first.
+
+        :param length:  the length of data to read
+        :param allow_partial: allow partial read or not, raise Exception when
+                              False and data read is less than length
+
+        :return: data from read buffer and socket
+        """
         buf = ""
+        # use read buffer to cache extra stuff for readline
         got = len(self.rbuf)
 
         if got:
-            pass
+            # if there is enough data, to take is length, else take all
+            to_take = length if got > length else got
+            length -= to_take
+            buf = self.rbuf[:to_take]
+            self.rbuf = self.rbuf[to_take:]
+
+        while length > 0:
+            if self.can_read():
+                raise Exception(("Timed out while waiting socket to become "
+                                 "ready for reading"))
+            # just raise any error
+            chunk = self._ist["fh"].recv(length)
+
+            # "quote"
+            # A protocol like HTTP uses a socket for only one transfer. The
+            # client sends a request, then reads a reply. That's it. The socket
+            # is discarded. This means that a client can detect the end of the
+            # reply by receiving 0 bytes.
+            if chunk == '':
+                break
+            buf += chunk
+            length -= len(chunk)
+
+        if length and not allow_partial:
+            raise Exception("Unexpected end of stream")
+
+        return buf
+
 
     def readline(self):
-        pass
+        newlinere = r"\A([^\x0D\x0A]*\x0D?\x0A)"
+        while True:
+            g = re.search(newlinewre, self.rbuf)
+            if g is not None:
+                self.rbuf = re.sub(newlinere, "", self.rbuf)
+                return g.group(1)
 
     def read_response_header(self):
         line = self.readline()
@@ -108,8 +154,41 @@ class TinyHandler(object):
             raise Exception("Malformed header line: {}".format(line))
         return headers
 
-    def read_response_body(self):
-        pass
+    def read_body(self, response):
+        te = response['headers'].get("transfer-encoding", "")
+        chunked = filter(lambda x: "chunked" in x.lower(), te if isinstance(list, te) else [te])
+        if chunked:
+            return self.read_chunked_body(response)
+        return self.read_content_body(response)
+
+    def read_chunked_body(self, response):
+        """ read chunked body """
+        # https://en.wikipedia.org/wiki/Chunked_transfer_encoding
+        lengthre = re.compile(r"\A[A-Fa-f0-9]+")
+        while True:
+            head = self.readline()
+            g = re.search(lengthre, head)
+            if g is not None:
+                length = int(g.group(1), 16)
+            else:
+                raise Exception("Malformed chunk head: {}".format(head))
+            if length == 0:
+                break
+            self.read_content_body(response, length)
+            if self.read(2) != self.rn:
+                raise Exception("Malformed chunk: missing CRLF")
+        #TODO: here?
+        self.read_header_lines(response['headers'])
+
+    def read_content_body(self, response, length=None):
+        length = length or response['headers'].get('content-length', 0)
+        if length:
+            left = length
+            while left > 0:
+                to_read = left if left < self.bufsize else self.bufsize
+                self.read(to_read)
+                left -= to_read
+
 
     def write(self, buf):
         """write buffer to socket"""
@@ -285,7 +364,7 @@ class TinyHTTP(object):
         handler.write_request(request)
 
         response = handler.read_response_header()
-        body = handler.read_response_body()
+        body = handler.read_body(response)
         response["body"] = body
         return response
 
