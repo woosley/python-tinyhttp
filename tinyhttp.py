@@ -32,6 +32,7 @@ class TinyHandler(object):
     def __init__(self, timeout, keep_alive):
         self.timeout = timeout
         self.keep_alive = keep_alive
+        self.max_line_size = 33328
         self.rbuf = ""
         self.max_header_lines = 100
         self.bufsize = 33328
@@ -82,14 +83,25 @@ class TinyHandler(object):
 
         return buf
 
-
     def readline(self):
+        """ read a line from read buffer and socket."""
         newlinere = r"\A([^\x0D\x0A]*\x0D?\x0A)"
         while True:
-            g = re.search(newlinewre, self.rbuf)
+            g = re.search(newlinere, self.rbuf)
             if g is not None:
                 self.rbuf = re.sub(newlinere, "", self.rbuf)
                 return g.group(1)
+            if len(self.rbuf) > self.max_line_size:
+                raise Exception("Line size exceeds the maximum allowed size")
+            if not self.can_read():
+                raise Exception(("Timed out while waiting socket to become "
+                                 "ready for reading"))
+            chunk = self._ist["fh"].recv(self.bufsize)
+            if chunk == "":
+                break
+            else:
+                self.rbuf += chunk
+        raise Exception("Unexpected end of stream while looking for line")
 
     def read_response_header(self):
         line = self.readline()
@@ -188,7 +200,6 @@ class TinyHandler(object):
                 to_read = left if left < self.bufsize else self.bufsize
                 self.read(to_read)
                 left -= to_read
-
 
     def write(self, buf):
         """write buffer to socket"""
