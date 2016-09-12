@@ -35,6 +35,7 @@ class TinyHandler(object):
         self.max_line_size = 33328
         self.rbuf = ""
         self.max_header_lines = 100
+        self.max_line_size = 16384
         self.bufsize = 33328
         self._ist = {}
 
@@ -62,7 +63,7 @@ class TinyHandler(object):
             self.rbuf = self.rbuf[to_take:]
 
         while length > 0:
-            if self.can_read():
+            if not self.can_read():
                 raise Exception(("Timed out while waiting socket to become "
                                  "ready for reading"))
             # just raise any error
@@ -103,19 +104,28 @@ class TinyHandler(object):
                 self.rbuf += chunk
         raise Exception("Unexpected end of stream while looking for line")
 
+            if len(self.rbuf) >= self.max_line_size:
+                raise Exception("Line size exceeds the maximum allowed size")
+
+            chunk = self._ist["fh"].recv(self.bufsize)
+            if chunk == '':
+                break
+            self.rbuf += chunk
+
     def read_response_header(self):
         line = self.readline()
 
         regexp = re.compile(
-            r"""\A(HTTP\/(0\d+\.0*))        # HTTP/1.1
-                [\x09\x20+ ([0-9]{3})       # 200
-                [\x09\x20]+ ([^\x0D\x0A]]*) # OK
-                \x0D?\x0A]                  # \r\n """)
+            r"""\A(HTTP\/(\d+\.0*\d+))        # HTTP/1.1
+                [\x09\x20]+([0-9]{3})         # 200
+                [\x09\x20]+([^\x0D\x0A]*)     # OK
+                \x0D?\x0A                     # \r\n """,  re.X)
 
         g = re.search(regexp, line)
         if g is None:
-            raise RuntimeError("Malformed Status-Line: {}\n".format(line))
+            raise RuntimeError("Malformed Status-Line: {}h\n".format(line))
         protocol, version, status, reason = g.groups()
+        # print g.groups()
 
         if re.search(r"0*1\.0*[01]", protocol) is None:
             raise Exception("Unsupported HTTP protocol: {}".format(protocol))
@@ -130,7 +140,7 @@ class TinyHandler(object):
     def read_header_lines(self, headers=None):
         headers = headers or {}
         # regexp for header line
-        headerre = re.compile(r"\A([^\x00-\x1F\x7F:]):[\x09\x20]*([^\x0D\x0A]*)")
+        headerre = re.compile(r"\A([^\x00-\x1F\x7F:]+):[\x09\x20]*([^\x0D\x0A]*)")
         continuere = re.compile(r"\A[\x09\x20]+([^\x0D\x0A])*")
         count = 0
         pre_field = ""
@@ -139,6 +149,7 @@ class TinyHandler(object):
             if count > self.max_header_lines:
                 raise Exception("Header lines exceedes maximum number allowed")
             line = self.readline()
+            # print line
             g = re.search(headerre, line)
             if g is not None:
                 field_name = g.group(1).lower()
@@ -161,14 +172,15 @@ class TinyHandler(object):
                 # append this line to the end of last header value
                 headers[pre_field][-1] += g.group(1)
                 continue
-            if re.search(r"\A\x0D?\x0A\z", line) is not None:
+            if re.search(r"\A\x0D?\x0A\z", line) is None:
                 break
             raise Exception("Malformed header line: {}".format(line))
+        #print headers
         return headers
 
     def read_body(self, response):
         te = response['headers'].get("transfer-encoding", "")
-        chunked = filter(lambda x: "chunked" in x.lower(), te if isinstance(list, te) else [te])
+        chunked = filter(lambda x: "chunked" in x.lower(), te if isinstance(te, list) else [te])
         if chunked:
             return self.read_chunked_body(response)
         return self.read_content_body(response)
@@ -176,7 +188,7 @@ class TinyHandler(object):
     def read_chunked_body(self, response):
         """ read chunked body """
         # https://en.wikipedia.org/wiki/Chunked_transfer_encoding
-        lengthre = re.compile(r"\A[A-Fa-f0-9]+")
+        lengthre = re.compile(r"\A([A-Fa-f0-9]+)")
         while True:
             head = self.readline()
             g = re.search(lengthre, head)
@@ -235,17 +247,17 @@ class TinyHandler(object):
 
         if self.keep_alive:
             sock.setsockopt(socket.SOL_SOCKET, socket.SO_KEEPALIVE, 1)
-        sock.connect(host, port)
+        sock.connect((host, port))
 
         if scheme == 'https': self.start_ssl(host)
         self._ist["fh"] = sock
         return sock
 
     def can_write(self):
-        self.do_timeout("write", self.timeout)
+        return self.do_timeout("write", self.timeout)
 
     def can_read(self):
-        self.do_timeout("read", self.timeout)
+        return self.do_timeout("read", self.timeout)
 
     def do_timeout(self, mode, timeout):
         """ simple timeout using select."""
@@ -262,7 +274,7 @@ class TinyHandler(object):
     def write_request(self, request):
         self.write_request_header(request['method'], request['uri'],
                                   request['headers'])
-        if request['content']: self.write_request_body()
+        if request.get('content', ""): self.write_request_body()
 
     def write_request_header(self, method, uri, headers):
         buf = "{} {} HTTP/1.1{}".format(method.upper(), uri, self.rn)
@@ -280,16 +292,15 @@ class TinyHandler(object):
             for f in field:
                 f = f if f is not None else ""
                 buf = "{}{}: {}{}".format(buf, field_name, f, self.rn)
-
         for k, v in headers.items():
             field_name = k.lower()
-            if seen[field_name]: next
+            if field_name in seen: continue
             field_name = self.headers_cased.get(field_name, field_name)
 
             v = v if isinstance(v, list) else [v]
-            for i in field:
-                f = f if f is not None else ""
-                buf = "{}{}: {}{}".format(buf, field_name, f, self.rn)
+            for i in v:
+                i = i if i is not None else ""
+                buf = "{}{}: {}{}".format(buf, field_name, i, self.rn)
         buf += self.rn
         return self.write(buf)
 
@@ -311,7 +322,8 @@ class TinyHTTP(object):
     _agent = 'python tinyhttp client'
 
 
-    def __init__(self, args):
+    def __init__(self, args=None):
+        args = args or {}
         self.max_redirect = 5
         self.timeout = args.get('timeout', 60)
         self.keep_alive = True
@@ -327,10 +339,11 @@ class TinyHTTP(object):
         self._setup_methods()
         self.set_proxies()
 
-    def request(self, method, url, args={}):
+    def request(self, method, url, args=None):
+        args = args or {}
         assert isinstance(args, dict)
         for _ in [0, 1]:
-            res = self.request(method, url, args)
+            res = self._request(method, url, args)
         return res
 
     def split_url(self, url):
@@ -371,7 +384,7 @@ class TinyHTTP(object):
             "headers": {},
         }
         self._prepare_headers(request, args, url, auth)
-        handler = TinyHandler()
+        handler = self._open_handler(request, scheme, host, port, host)
         handler.write_request(request)
 
         response = handler.read_response_header()
@@ -379,9 +392,8 @@ class TinyHTTP(object):
         response["body"] = body
         return response
 
-
     def _prepare_headers(self, request, args, url, auth):
-        for k, v in args['headers'].items():
+        for k, v in args.get('headers', {}).items():
             request['headers'][k.lower()] = v
             request['headers_case'][k.lower()] = v
 
@@ -397,7 +409,6 @@ class TinyHTTP(object):
             request['headers']['content-type'] = 'application/octet-stream'
         #TODO: setup cookjar
         #TODO: setup basic authentication
-        self._open_handler(request)
 
     def _setup_methods(self):
         for i in ['get', 'head', 'put', 'post', 'delete']:
@@ -414,8 +425,12 @@ class TinyHTTP(object):
                               keep_alive=self.keep_alive)
         self.handler = handler
         handler.connect(scheme, host, port, peer)
+        return handler
 
 
 if __name__ == '__main__':
-    http = TinyHTTP({})
+    import sys
+    http = TinyHTTP()
+    res = http.get(sys.argv[1])
+    print res
 
