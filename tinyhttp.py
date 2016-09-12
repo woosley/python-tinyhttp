@@ -113,7 +113,7 @@ class TinyHandler(object):
         if g is None:
             raise RuntimeError("Malformed Status-Line: {}h\n".format(line))
         protocol, version, status, reason = g.groups()
-        print g.groups()
+        # print g.groups()
 
         if re.search(r"0*1\.0*[01]", protocol) is None:
             raise Exception("Unsupported HTTP protocol: {}".format(protocol))
@@ -128,7 +128,7 @@ class TinyHandler(object):
     def read_header_lines(self, headers=None):
         headers = headers or {}
         # regexp for header line
-        headerre = re.compile(r"\A([^\x00-\x1F\x7F:]):[\x09\x20]*([^\x0D\x0A]*)")
+        headerre = re.compile(r"\A([^\x00-\x1F\x7F:]+):[\x09\x20]*([^\x0D\x0A]*)")
         continuere = re.compile(r"\A[\x09\x20]+([^\x0D\x0A])*")
         count = 0
         pre_field = ""
@@ -137,6 +137,7 @@ class TinyHandler(object):
             if count > self.max_header_lines:
                 raise Exception("Header lines exceedes maximum number allowed")
             line = self.readline()
+            # print line
             g = re.search(headerre, line)
             if g is not None:
                 field_name = g.group(1).lower()
@@ -159,14 +160,15 @@ class TinyHandler(object):
                 # append this line to the end of last header value
                 headers[pre_field][-1] += g.group(1)
                 continue
-            if re.search(r"\A\x0D?\x0A\z", line) is not None:
+            if re.search(r"\A\x0D?\x0A\z", line) is None:
                 break
             raise Exception("Malformed header line: {}".format(line))
+        #print headers
         return headers
 
     def read_body(self, response):
         te = response['headers'].get("transfer-encoding", "")
-        chunked = filter(lambda x: "chunked" in x.lower(), te if isinstance(list, te) else [te])
+        chunked = filter(lambda x: "chunked" in x.lower(), te if isinstance(te, list) else [te])
         if chunked:
             return self.read_chunked_body(response)
         return self.read_content_body(response)
@@ -174,7 +176,7 @@ class TinyHandler(object):
     def read_chunked_body(self, response):
         """ read chunked body """
         # https://en.wikipedia.org/wiki/Chunked_transfer_encoding
-        lengthre = re.compile(r"\A[A-Fa-f0-9]+")
+        lengthre = re.compile(r"\A([A-Fa-f0-9]+)")
         while True:
             head = self.readline()
             g = re.search(lengthre, head)
