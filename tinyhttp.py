@@ -34,6 +34,7 @@ class TinyHandler(object):
         self.keep_alive = keep_alive
         self.rbuf = ""
         self.max_header_lines = 100
+        self.max_line_size = 16384
         self.bufsize = 33328
         self._ist = {}
 
@@ -61,7 +62,7 @@ class TinyHandler(object):
             self.rbuf = self.rbuf[to_take:]
 
         while length > 0:
-            if self.can_read():
+            if not self.can_read():
                 raise Exception(("Timed out while waiting socket to become "
                                  "ready for reading"))
             # just raise any error
@@ -86,24 +87,33 @@ class TinyHandler(object):
     def readline(self):
         newlinere = r"\A([^\x0D\x0A]*\x0D?\x0A)"
         while True:
-            g = re.search(newlinewre, self.rbuf)
+            g = re.search(newlinere, self.rbuf)
             if g is not None:
                 self.rbuf = re.sub(newlinere, "", self.rbuf)
                 return g.group(1)
+
+            if len(self.rbuf) >= self.max_line_size:
+                raise Exception("Line size exceeds the maximum allowed size")
+
+            chunk = self._ist["fh"].recv(self.bufsize)
+            if chunk == '':
+                break
+            self.rbuf += chunk
 
     def read_response_header(self):
         line = self.readline()
 
         regexp = re.compile(
-            r"""\A(HTTP\/(0\d+\.0*))        # HTTP/1.1
-                [\x09\x20+ ([0-9]{3})       # 200
-                [\x09\x20]+ ([^\x0D\x0A]]*) # OK
-                \x0D?\x0A]                  # \r\n """)
+            r"""\A(HTTP\/(\d+\.0*\d+))        # HTTP/1.1
+                [\x09\x20]+([0-9]{3})         # 200
+                [\x09\x20]+([^\x0D\x0A]*)     # OK
+                \x0D?\x0A                     # \r\n """,  re.X)
 
         g = re.search(regexp, line)
         if g is None:
-            raise RuntimeError("Malformed Status-Line: {}\n".format(line))
+            raise RuntimeError("Malformed Status-Line: {}h\n".format(line))
         protocol, version, status, reason = g.groups()
+        print g.groups()
 
         if re.search(r"0*1\.0*[01]", protocol) is None:
             raise Exception("Unsupported HTTP protocol: {}".format(protocol))
@@ -224,17 +234,17 @@ class TinyHandler(object):
 
         if self.keep_alive:
             sock.setsockopt(socket.SOL_SOCKET, socket.SO_KEEPALIVE, 1)
-        sock.connect(host, port)
+        sock.connect((host, port))
 
         if scheme == 'https': self.start_ssl(host)
         self._ist["fh"] = sock
         return sock
 
     def can_write(self):
-        self.do_timeout("write", self.timeout)
+        return self.do_timeout("write", self.timeout)
 
     def can_read(self):
-        self.do_timeout("read", self.timeout)
+        return self.do_timeout("read", self.timeout)
 
     def do_timeout(self, mode, timeout):
         """ simple timeout using select."""
@@ -251,7 +261,7 @@ class TinyHandler(object):
     def write_request(self, request):
         self.write_request_header(request['method'], request['uri'],
                                   request['headers'])
-        if request['content']: self.write_request_body()
+        if request.get('content', ""): self.write_request_body()
 
     def write_request_header(self, method, uri, headers):
         buf = "{} {} HTTP/1.1{}".format(method.upper(), uri, self.rn)
@@ -272,7 +282,7 @@ class TinyHandler(object):
 
         for k, v in headers.items():
             field_name = k.lower()
-            if seen[field_name]: next
+            if field_name in seen: next
             field_name = self.headers_cased.get(field_name, field_name)
 
             v = v if isinstance(v, list) else [v]
@@ -300,7 +310,8 @@ class TinyHTTP(object):
     _agent = 'python tinyhttp client'
 
 
-    def __init__(self, args):
+    def __init__(self, args=None):
+        args = args or {}
         self.max_redirect = 5
         self.timeout = args.get('timeout', 60)
         self.keep_alive = True
@@ -316,10 +327,11 @@ class TinyHTTP(object):
         self._setup_methods()
         self.set_proxies()
 
-    def request(self, method, url, args={}):
+    def request(self, method, url, args=None):
+        args = args or {}
         assert isinstance(args, dict)
         for _ in [0, 1]:
-            res = self.request(method, url, args)
+            res = self._request(method, url, args)
         return res
 
     def split_url(self, url):
@@ -360,7 +372,7 @@ class TinyHTTP(object):
             "headers": {},
         }
         self._prepare_headers(request, args, url, auth)
-        handler = TinyHandler()
+        handler = self._open_handler(request, scheme, host, port, host)
         handler.write_request(request)
 
         response = handler.read_response_header()
@@ -368,9 +380,8 @@ class TinyHTTP(object):
         response["body"] = body
         return response
 
-
     def _prepare_headers(self, request, args, url, auth):
-        for k, v in args['headers'].items():
+        for k, v in args.get('headers', {}).items():
             request['headers'][k.lower()] = v
             request['headers_case'][k.lower()] = v
 
@@ -386,7 +397,6 @@ class TinyHTTP(object):
             request['headers']['content-type'] = 'application/octet-stream'
         #TODO: setup cookjar
         #TODO: setup basic authentication
-        self._open_handler(request)
 
     def _setup_methods(self):
         for i in ['get', 'head', 'put', 'post', 'delete']:
@@ -403,8 +413,12 @@ class TinyHTTP(object):
                               keep_alive=self.keep_alive)
         self.handler = handler
         handler.connect(scheme, host, port, peer)
+        return handler
 
 
 if __name__ == '__main__':
-    http = TinyHTTP({})
+    import sys
+    http = TinyHTTP()
+    res = http.get(sys.argv[1])
+    print res
 
