@@ -201,7 +201,6 @@ class TinyHandler(object):
                 self.read(to_read)
                 left -= to_read
 
-
     def write(self, buf):
         """write buffer to socket"""
         length = len(buf)
@@ -281,16 +280,15 @@ class TinyHandler(object):
             for f in field:
                 f = f if f is not None else ""
                 buf = "{}{}: {}{}".format(buf, field_name, f, self.rn)
-
         for k, v in headers.items():
             field_name = k.lower()
-            if field_name in seen: next
+            if field_name in seen: continue
             field_name = self.headers_cased.get(field_name, field_name)
 
             v = v if isinstance(v, list) else [v]
-            for i in field:
-                f = f if f is not None else ""
-                buf = "{}{}: {}{}".format(buf, field_name, f, self.rn)
+            for i in v:
+                i = i if i is not None else ""
+                buf = "{}{}: {}{}".format(buf, field_name, i, self.rn)
         buf += self.rn
         return self.write(buf)
 
