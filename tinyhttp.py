@@ -104,13 +104,6 @@ class TinyHandler(object):
                 self.rbuf += chunk
         raise Exception("Unexpected end of stream while looking for line")
 
-            if len(self.rbuf) >= self.max_line_size:
-                raise Exception("Line size exceeds the maximum allowed size")
-
-            chunk = self._ist["fh"].recv(self.bufsize)
-            if chunk == '':
-                break
-            self.rbuf += chunk
 
     def read_response_header(self):
         line = self.readline()
