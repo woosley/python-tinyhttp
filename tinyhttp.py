@@ -151,9 +151,12 @@ class TinyHandler(object):
                 #TODO: checkhere
                 var = g.group(2)
                 if field_name in headers:
-                    headers[field_name].append(var)
+                    if isinstance(list, headers[field_name]):
+                        headers[field_name].append(var)
+                    else:
+                        headers[field_name] = [headers[field_name], var]
                 else:
-                    headers[field_name] = [var]
+                    headers[field_name] = var
                 pre_field = field_name
                 continue
             g = re.search(continuere, line)
@@ -162,10 +165,15 @@ class TinyHandler(object):
                 if not pre_field:
                     raise Exception("Unexpected header continue line")
                 if not len(g.group(1)): continue
-                if len(headers[pre_field][-1]):
-                    headers[pre_field][-1] += " "
-                # append this line to the end of last header value
-                headers[pre_field][-1] += g.group(1)
+                if isinstance(list, headers[pre_field]):
+                    if len(headers[pre_field][-1]):
+                        headers[pre_field][-1] += " "
+                    # append this line to the end of last header value
+                    headers[pre_field][-1] += g.group(1)
+                else:
+                    if len(headers[pre_field]):
+                        headers[pre_field] += " "
+                    headers[pre_field] += g.group(1)
                 continue
             if re.search(r"\A\x0D?\x0A\z", line) is None:
                 break
@@ -204,11 +212,13 @@ class TinyHandler(object):
 
     def read_content_body(self, response, length=None):
         length = length or response['headers'].get('content-length', 0)
+        length = int(length)
         buf = ""
         if length:
             left = length
             while left > 0:
                 to_read = left if left < self.bufsize else self.bufsize
+                #print to_read
                 chunk = self.read(to_read)
                 buf += chunk
                 left -= to_read
@@ -368,7 +378,7 @@ class TinyHTTP(object):
             host = re.sub(r":\d+$", "", host)
         else:
             port = 443 if scheme == 'https' else 80
-        return (scheme, host, port, path_query, auth)
+        return (scheme, host, int(port), path_query, auth)
 
     def _request(self, method, url, args):
         scheme, host, port, path_query, auth = self.split_url(url)
