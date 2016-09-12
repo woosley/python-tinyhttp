@@ -1,10 +1,13 @@
+"""TinyHTTP is a tiny http client implementation."""
 import re
 import errno
 import select
 import socket
 from functools import partial
 
+
 class TinyHandler(object):
+    """Tinyhandler to take care of low level socket read/write."""
 
     rfc_request_headers = ['Accept', 'Accept-Charset', 'Accept-Encoding',
                            'Accept-Language', 'Authorization', 'Cache-Control',
@@ -15,9 +18,9 @@ class TinyHandler(object):
                            'Range', 'Referer', 'TE', 'Trailer',
                            'Transfer-Encoding', 'Upgrade', 'User-Agent', 'Via']
 
-
-    other_request_headers = """Content-Encoding Content-MD5 Content-Type Cookie
-    DNT Date Origin X-XSS-Protection""".split()
+    other_request_headers = ["Content-Encoding", "Content-MD5",
+                             "Content-Type", "Cookie", "DNT", "Date", "Origin",
+                             " X-XSS-Protection"]
 
     # keep this to make pylint happy
     headers_cased = {}
@@ -25,7 +28,6 @@ class TinyHandler(object):
         headers_cased[h.lower()] = h
     for h in other_request_headers:
         headers_cased[h.lower()] = h
-
 
     rn = '\x0D\x0A'
 
@@ -182,6 +184,7 @@ class TinyHandler(object):
         """ read chunked body """
         # https://en.wikipedia.org/wiki/Chunked_transfer_encoding
         lengthre = re.compile(r"\A([A-Fa-f0-9]+)")
+        buf = ""
         while True:
             head = self.readline()
             g = re.search(lengthre, head)
@@ -191,20 +194,25 @@ class TinyHandler(object):
                 raise Exception("Malformed chunk head: {}".format(head))
             if length == 0:
                 break
-            self.read_content_body(response, length)
+            buf += self.read_content_body(response, length)
             if self.read(2) != self.rn:
                 raise Exception("Malformed chunk: missing CRLF")
         #TODO: here?
-        self.read_header_lines(response['headers'])
+        #self.read_header_lines(response['headers'])
+        #print buf
+        return buf
 
     def read_content_body(self, response, length=None):
         length = length or response['headers'].get('content-length', 0)
+        buf = ""
         if length:
             left = length
             while left > 0:
                 to_read = left if left < self.bufsize else self.bufsize
-                self.read(to_read)
+                chunk = self.read(to_read)
+                buf += chunk
                 left -= to_read
+        return buf
 
     def write(self, buf):
         """write buffer to socket"""
@@ -310,10 +318,7 @@ class TinyHTTP(object):
     attributes = ('cookie_jar', 'default_headers', 'http_proxy', 'https_proxy',
                   'keep_alive', 'local_address', 'max_redirect', 'max_size',
                   'proxy', 'no_proxy', 'ssl_options', 'verify_ssl')
-
-
     _agent = 'python tinyhttp client'
-
 
     def __init__(self, args=None):
         args = args or {}
