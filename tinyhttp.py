@@ -1,10 +1,16 @@
 """TinyHTTP is a tiny http client implementation."""
+from __future__ import print_function
 import re
 import errno
 import select
 import socket
 from functools import partial
 
+DEBUG = True
+
+def print_debug(msg):
+    if DEBUG:
+        print(msg)
 
 class TinyHandler(object):
     """Tinyhandler to take care of low level socket read/write."""
@@ -285,7 +291,7 @@ class TinyHandler(object):
     def write_request(self, request):
         self.write_request_header(request['method'], request['uri'],
                                   request['headers'])
-        if request.get('content', ""): self.write_request_body()
+        if request.get('content', ""): self.write_request_body(request)
 
     def write_request_header(self, method, uri, headers):
         buf = "{} {} HTTP/1.1{}".format(method.upper(), uri, self.rn)
@@ -313,10 +319,12 @@ class TinyHandler(object):
                 i = i if i is not None else ""
                 buf = "{}{}: {}{}".format(buf, field_name, i, self.rn)
         buf += self.rn
+        print_debug("writting request header")
         return self.write(buf)
 
     def write_request_body(self, request):
-        content_length = request['headers']['content_length']
+        content_length = request['headers']['content-length']
+        print_debug("writting request content")
         length = self.write(request['content'])
         if length != content_length:
             raise RuntimeError("Length mismatch {} != {}".format(
@@ -415,6 +423,7 @@ class TinyHTTP(object):
         if 'content' in args:
             request['headers']['content-length'] = len(args['content'])
             request['headers']['content-type'] = 'application/octet-stream'
+            request['content'] = args['content']
         #TODO: setup cookjar
         #TODO: setup basic authentication
 
@@ -439,6 +448,6 @@ class TinyHTTP(object):
 if __name__ == '__main__':
     import sys
     http = TinyHTTP()
-    res = http.get(sys.argv[1])
-    print res
+    res = http.post(sys.argv[1], {"content": "hely"})
+    print(res)
 
