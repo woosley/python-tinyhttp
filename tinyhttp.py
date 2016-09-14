@@ -41,8 +41,9 @@ class TinyHandler(object):
 
     rn = '\x0D\x0A'
 
-    def __init__(self, timeout, keep_alive):
+    def __init__(self, timeout, keep_alive, conn_timeout):
         self.timeout = timeout
+        self.conn_timeout = conn_timeout
         self.keep_alive = keep_alive
         self.max_line_size = 33328
         self.rbuf = ""
@@ -325,11 +326,13 @@ class TinyHandler(object):
             raise Exception("Unsupported URL scheme %s" % scheme)
 
         sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-        #sock.settimeout(self.timeout)
 
         if self.keep_alive:
             sock.setsockopt(socket.SOL_SOCKET, socket.SO_KEEPALIVE, 1)
+        # set connection timeout
+        sock.settimeout(self.conn_timeout)
         sock.connect((host, port))
+        sock.settimeout(None)
 
         if scheme == 'https': self.start_ssl(host)
         self._ist["fh"] = sock
@@ -422,6 +425,7 @@ class TinyHTTP(object):
         args = args or {}
         self.max_redirect = 5
         self.timeout = args.get('timeout', 60)
+        self.conn_timeout = args.get('conn_timeout', self.timeout)
         self.keep_alive = True
         self.verify_ssl = args.get('verify_ssl', False)
         self.agent = args.get("agent", self._agent)
@@ -519,6 +523,7 @@ class TinyHTTP(object):
 
     def _open_handler(self, request, scheme, host, port, peer):
         handler = TinyHandler(timeout=self.timeout,
+                              conn_timeout=self.conn_timeout,
                               keep_alive=self.keep_alive)
         self.handler = handler
         handler.connect(scheme, host, port, peer)
