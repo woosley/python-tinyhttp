@@ -232,8 +232,8 @@ class TinyHandler(object):
             buf += self.read_content_body(response, length)
             if self.read(2) != self.rn:
                 raise Exception("Malformed chunk: missing CRLF")
-        #TODO: here?
-        #self.read_header_lines(response['headers'])
+        # chunked response can have headers after body is sent
+        self.read_header_lines(response['headers'])
         #print buf
         return buf
 
