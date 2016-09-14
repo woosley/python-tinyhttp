@@ -112,8 +112,8 @@ class TinyHandler(object):
                 self.rbuf += chunk
         raise Exception("Unexpected end of stream while looking for line")
 
-
     def read_response_header(self):
+        print_debug("read response header")
         line = self.readline()
 
         regexp = re.compile(
@@ -139,6 +139,7 @@ class TinyHandler(object):
         }
 
     def read_header_lines(self, headers=None):
+        print_debug("read header lines")
         headers = headers or {}
         # regexp for header line
         headerre = re.compile(r"\A([^\x00-\x1F\x7F:]+):[\x09\x20]*([^\x0D\x0A]*)")
@@ -190,20 +191,25 @@ class TinyHandler(object):
     def read_body(self, response):
         te = response['headers'].get("transfer-encoding", "")
         chunked = filter(lambda x: "chunked" in x.lower(), te if isinstance(te, list) else [te])
+        # don't honor http 1.1 a bit
         if chunked:
             return self.read_chunked_body(response)
-        return self.read_content_body(response)
+        else:
+            return self.read_content_body(response)
 
     def read_chunked_body(self, response):
         """ read chunked body """
+        print_debug("reading chunked body")
         # https://en.wikipedia.org/wiki/Chunked_transfer_encoding
         lengthre = re.compile(r"\A([A-Fa-f0-9]+)")
         buf = ""
         while True:
             head = self.readline()
+            print(head)
             g = re.search(lengthre, head)
             if g is not None:
                 length = int(g.group(1), 16)
+                print_debug("reading {} length from backend".format(length))
             else:
                 raise Exception("Malformed chunk head: {}".format(head))
             if length == 0:
@@ -228,6 +234,9 @@ class TinyHandler(object):
                 chunk = self.read(to_read)
                 buf += chunk
                 left -= to_read
+        else:
+            while True:
+                chunk = self.read(to_read)
         return buf
 
     def write(self, buf):
@@ -269,6 +278,9 @@ class TinyHandler(object):
         if scheme == 'https': self.start_ssl(host)
         self._ist["fh"] = sock
         return sock
+
+    def setart_ssl(self, host):
+        pass
 
     def can_write(self):
         return self.do_timeout("write", self.timeout)
@@ -358,7 +370,7 @@ class TinyHTTP(object):
     def request(self, method, url, args=None):
         args = args or {}
         assert isinstance(args, dict)
-        for _ in [0, 1]:
+        for _ in [1]:
             res = self._request(method, url, args)
         return res
 
@@ -448,6 +460,6 @@ class TinyHTTP(object):
 if __name__ == '__main__':
     import sys
     http = TinyHTTP()
-    res = http.post(sys.argv[1], {"content": "hely"})
+    res = http.get(sys.argv[1])
     print(res)
 
