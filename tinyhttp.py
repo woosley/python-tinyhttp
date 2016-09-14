@@ -325,7 +325,7 @@ class TinyHandler(object):
             raise Exception("Unsupported URL scheme %s" % scheme)
 
         sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-        sock.settimeout(self.timeout)
+        #sock.settimeout(self.timeout)
 
         if self.keep_alive:
             sock.setsockopt(socket.SOL_SOCKET, socket.SO_KEEPALIVE, 1)
@@ -351,13 +351,12 @@ class TinyHandler(object):
 
         :return: socket list can be read or written
         """
-
         fd_set = [self._ist['fh']]
-        found = select.select(
-            fd_set, [], [], timeout) \
-            if mode == 'read' else \
-            select.select([], fd_set, [], timeout)
-        return found
+        if mode == "write":
+            return select.select([], fd_set, [], timeout)[1]
+        else:
+            return select.select(fd_set, [], [], timeout)[0]
+
 
     def get_header_name(self, header):
         return self.headers_cased.get(header)
