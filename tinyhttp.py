@@ -185,7 +185,6 @@ class TinyHandler(object):
             if re.search(r"\A\x0D?\x0A\z", line) is None:
                 break
             raise Exception("Malformed header line: {}".format(line))
-        #print headers
         return headers
 
     def read_streamed_body(self):
@@ -234,7 +233,6 @@ class TinyHandler(object):
                 raise Exception("Malformed chunk: missing CRLF")
         # chunked response can have headers after body is sent
         self.read_header_lines(response['headers'])
-        #print buf
         return buf
 
     def read_content_body(self, response, length=None):
@@ -245,7 +243,6 @@ class TinyHandler(object):
             left = length
             while left > 0:
                 to_read = left if left < self.bufsize else self.bufsize
-                #print to_read
                 chunk = self.read(to_read)
                 buf += chunk
                 left -= to_read
@@ -455,7 +452,7 @@ class TinyHTTP(object):
         #TODO: setup basic authentication
 
     def _setup_methods(self):
-        for i in ['get', 'head', 'put', 'post', 'delete']:
+        for i in ['get', 'head', 'put', 'post', 'delete', 'patch']:
             setattr(self, i, partial(self.request, i))
 
     def set_proxies(self):
