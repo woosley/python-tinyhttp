@@ -188,12 +188,27 @@ class TinyHandler(object):
         #print headers
         return headers
 
+    def read_streamed_body(self):
+        print_debug("reading streamed body")
+        buf = self.rbuf
+        while True:
+            if not self.can_read():
+                raise Exception(("Timed out while waiting socket to become "
+                                 "ready for reading"))
+            chunk = self._ist['fh'].recv(self.bufsize)
+            if chunk == "":
+                break
+            buf += chunk
+        return buf
+
     def read_body(self, response):
         te = response['headers'].get("transfer-encoding", "")
         chunked = filter(lambda x: "chunked" in x.lower(), te if isinstance(te, list) else [te])
         # don't honor http 1.1 a bit
         if chunked:
             return self.read_chunked_body(response)
+        elif 'content-length' not in response['headers']:
+            return self.read_streamed_body()
         else:
             return self.read_content_body(response)
 
