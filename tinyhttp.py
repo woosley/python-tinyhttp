@@ -8,11 +8,15 @@ from functools import partial
 
 DEBUG = True
 
+
 def print_debug(msg):
+    """print msg if DEBUG is set to true."""
     if DEBUG:
         print(msg)
 
+
 class TinyHandler(object):
+
     """Tinyhandler to take care of low level socket read/write."""
 
     rfc_request_headers = ['Accept', 'Accept-Charset', 'Accept-Encoding',
@@ -50,7 +54,7 @@ class TinyHandler(object):
     def read(self, length, allow_partial=False):
         """ read from socket
 
-        This function read length bites from socket, if there are already
+        This function read length bytes from socket, if there are already
         buffered data, read from buffer first.
 
         :param length:  the length of data to read
@@ -59,6 +63,7 @@ class TinyHandler(object):
 
         :return: data from read buffer and socket
         """
+
         buf = ""
         # use read buffer to cache extra stuff for readline
         got = len(self.rbuf)
@@ -93,7 +98,10 @@ class TinyHandler(object):
         return buf
 
     def readline(self):
-        """ read a line from read buffer and socket."""
+        """ read a line from read buffer and socket.
+
+        :return: one line of data read from socket
+        """
         newlinere = r"\A([^\x0D\x0A]*\x0D?\x0A)"
         while True:
             g = re.search(newlinere, self.rbuf)
@@ -113,6 +121,11 @@ class TinyHandler(object):
         raise Exception("Unexpected end of stream while looking for line")
 
     def read_response_header(self):
+        """ read response header.
+
+        :return: dict with "status", "reason", "headers" and "protocol"
+        """
+
         print_debug("read response header")
         line = self.readline()
 
@@ -124,7 +137,7 @@ class TinyHandler(object):
 
         g = re.search(regexp, line)
         if g is None:
-            raise RuntimeError("Malformed Status-Line: {}h\n".format(line))
+            raise Exception("Malformed Status-Line: {}h\n".format(line))
         protocol, version, status, reason = g.groups()
         # print g.groups()
 
@@ -139,6 +152,11 @@ class TinyHandler(object):
         }
 
     def read_header_lines(self, headers=None):
+        """ read all headers from socket.
+
+        :param headers: optional header dict to be updated
+        :return: header dict
+        """
         print_debug("read header lines")
         headers = headers or {}
         # regexp for header line
@@ -151,7 +169,6 @@ class TinyHandler(object):
             if count > self.max_header_lines:
                 raise Exception("Header lines exceedes maximum number allowed")
             line = self.readline()
-            # print line
             g = re.search(headerre, line)
             if g is not None:
                 field_name = g.group(1).lower()
@@ -188,6 +205,14 @@ class TinyHandler(object):
         return headers
 
     def read_streamed_body(self):
+        """read streamed response body.
+
+        when header have neither content-length, nor transfer-encoding, body is
+        streamed, http server closes the connnection, which indicates the end
+        of the stream
+
+        :return: response body string
+        """
         print_debug("reading streamed body")
         buf = self.rbuf
         while True:
@@ -201,6 +226,8 @@ class TinyHandler(object):
         return buf
 
     def read_body(self, response):
+        """ read response body."""
+
         te = response['headers'].get("transfer-encoding", "")
         chunked = filter(lambda x: "chunked" in x.lower(), te if isinstance(te, list) else [te])
         # don't honor http 1.1 a bit
@@ -212,9 +239,13 @@ class TinyHandler(object):
             return self.read_content_body(response)
 
     def read_chunked_body(self, response):
-        """ read chunked body """
+        """ read chunked body.
+
+        see https://en.wikipedia.org/wiki/Chunked_transfer_encoding about chunked body
+
+        :return: response body string
+        """
         print_debug("reading chunked body")
-        # https://en.wikipedia.org/wiki/Chunked_transfer_encoding
         lengthre = re.compile(r"\A([A-Fa-f0-9]+)")
         buf = ""
         while True:
@@ -236,6 +267,10 @@ class TinyHandler(object):
         return buf
 
     def read_content_body(self, response, length=None):
+        """ read `length` bytes response body.
+
+        :return: response body string
+        """
         length = length or response['headers'].get('content-length', 0)
         length = int(length)
         buf = ""
@@ -246,13 +281,13 @@ class TinyHandler(object):
                 chunk = self.read(to_read)
                 buf += chunk
                 left -= to_read
-        else:
-            while True:
-                chunk = self.read(to_read)
         return buf
 
     def write(self, buf):
-        """write buffer to socket"""
+        """write buffer to socket.
+
+        :return: number of bytes sent
+        """
         length = len(buf)
         sent = 0
         while sent < length:
@@ -262,12 +297,12 @@ class TinyHandler(object):
             try:
                 just_sent = self._ist['fh'].send(buf[sent:])
                 if just_sent == 0:
-                    raise RuntimeError("socket connection broken")
+                    raise Exception("socket connection broken")
                 sent += just_sent
             except socket.error as e:
                 if isinstance(e.args, tuple):
                     if e[0] == errno.EPIPE:
-                        raise RuntimeError("Socket closed by remote server")
+                        raise Exception("Socket closed by remote server")
                 else:
                     raise
             except Exception:
@@ -275,6 +310,15 @@ class TinyHandler(object):
         return sent
 
     def connect(self, scheme, host, port, peer):
+        """connect to remote.
+
+        :param scheme: http or https
+        :param host: remote host
+        :param port: port to connect
+        :param peer: what?
+
+        :return: connection socket
+        """
         if scheme == "https":
             pass
         elif scheme != "http":
@@ -291,33 +335,43 @@ class TinyHandler(object):
         self._ist["fh"] = sock
         return sock
 
-    def setart_ssl(self, host):
+    def start_ssl(self, host):
         pass
 
     def can_write(self):
+        """ check if socket can write."""
         return self.do_timeout("write", self.timeout)
 
     def can_read(self):
+        """ check if socket can read."""
         return self.do_timeout("read", self.timeout)
 
     def do_timeout(self, mode, timeout):
-        """ simple timeout using select."""
+        """simple timeout using select.
+
+        :return: socket list can be read or written
+        """
 
         fd_set = [self._ist['fh']]
         found = select.select(
-            fd_set, [], [], timeout) if mode == 'read' else select.select(
-                [], fd_set, [], timeout)
+            fd_set, [], [], timeout) \
+            if mode == 'read' else \
+            select.select([], fd_set, [], timeout)
         return found
 
     def get_header_name(self, header):
         return self.headers_cased.get(header)
 
     def write_request(self, request):
+        """write http request to socket"""
+
         self.write_request_header(request['method'], request['uri'],
                                   request['headers'])
         if request.get('content', ""): self.write_request_body(request)
 
     def write_request_header(self, method, uri, headers):
+        """write request headers to socket"""
+
         buf = "{} {} HTTP/1.1{}".format(method.upper(), uri, self.rn)
         seen = {}
 
@@ -347,15 +401,18 @@ class TinyHandler(object):
         return self.write(buf)
 
     def write_request_body(self, request):
+        """write request body to socket."""
+
         content_length = request['headers']['content-length']
         print_debug("writting request content")
         length = self.write(request['content'])
         if length != content_length:
-            raise RuntimeError("Length mismatch {} != {}".format(
+            raise Exception("Length mismatch {} != {}".format(
                 length, content_length))
 
 
 class TinyHTTP(object):
+    """TinyHTTP is a tiny http client implimentation."""
 
     attributes = ('cookie_jar', 'default_headers', 'http_proxy', 'https_proxy',
                   'keep_alive', 'local_address', 'max_redirect', 'max_size',
@@ -392,7 +449,7 @@ class TinyHTTP(object):
         if g is not None:
             scheme, host, path_query = g.groups()
         else:
-            raise RuntimeError("Can not parse URL: %s" % url)
+            raise Exception("Can not parse URL: %s" % url)
 
         scheme = scheme.lower()
         if not path_query.startswith("/") : path_query = "/%s" % path_query
@@ -438,7 +495,7 @@ class TinyHTTP(object):
             request['headers_case'][k.lower()] = v
 
         if 'host' in request['headers']:
-            raise RuntimeError("Host can not be provided as header")
+            raise Exception("Host can not be provided as header")
 
         request['headers']["host"] = request['host_port']
         if not self.keep_alive: request['headers']["connection"] = 'close'
@@ -474,4 +531,3 @@ if __name__ == '__main__':
     http = TinyHTTP()
     res = http.get(sys.argv[1])
     print(res)
-
