@@ -460,8 +460,10 @@ class TinyHTTP(object):
         pos = host.find("@")
         if pos != -1:
             auth = host[:pos]
+            if "%" in auth:
+                auth = self.persent_unescape(auth)
             host = host[pos + 1:]
-        #Todo: fix persent escape
+
         g = re.search(r":(\d+)$", host)
         port = None
         if g is not None:
@@ -470,6 +472,13 @@ class TinyHTTP(object):
         else:
             port = 443 if scheme == 'https' else 80
         return (scheme, host, int(port), path_query, auth)
+
+    def persent_unescape(self, string):
+        """ persent unescape a string"""
+
+        return re.compile(
+            r"%([0-9A-Fa-f]{2})").sub(
+            lambda m: chr(int(m.group(1), 16)), string)
 
     def _request(self, method, url, args):
         scheme, host, port, path_query, auth = self.split_url(url)
