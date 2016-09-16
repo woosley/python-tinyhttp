@@ -19,18 +19,18 @@ class TinyHandler(object):
 
     """Tinyhandler to take care of low level socket read/write."""
 
-    rfc_request_headers = ['Accept', 'Accept-Charset', 'Accept-Encoding',
+    rfc_request_headers = ('Accept', 'Accept-Charset', 'Accept-Encoding',
                            'Accept-Language', 'Authorization', 'Cache-Control',
                            'Connection', 'Content-Length', 'Expect', 'From',
                            'Host', 'If-Match', 'If-Modified-Since',
                            'If-None-Match', 'If-Range', 'If-Unmodified-Since',
                            'Max-Forwards', 'Pragma', 'Proxy-Authorization',
                            'Range', 'Referer', 'TE', 'Trailer',
-                           'Transfer-Encoding', 'Upgrade', 'User-Agent', 'Via']
+                           'Transfer-Encoding', 'Upgrade', 'User-Agent', 'Via')
 
-    other_request_headers = ["Content-Encoding", "Content-MD5",
+    other_request_headers = ("Content-Encoding", "Content-MD5",
                              "Content-Type", "Cookie", "DNT", "Date", "Origin",
-                             " X-XSS-Protection"]
+                             " X-XSS-Protection")
 
     # keep this to make pylint happy
     headers_cased = {}
@@ -360,7 +360,6 @@ class TinyHandler(object):
         else:
             return select.select(fd_set, [], [], timeout)[0]
 
-
     def get_header_name(self, header):
         return self.headers_cased.get(header)
 
@@ -508,8 +507,14 @@ class TinyHTTP(object):
             request['headers']['content-length'] = len(args['content'])
             request['headers']['content-type'] = 'application/octet-stream'
             request['content'] = args['content']
+        if auth and "authorization" not in request['headers']:
+            self._setup_auth(request, auth)
+
         #TODO: setup cookjar
-        #TODO: setup basic authentication
+
+    def _setup_auth(self, request, auth):
+        import base64
+        request['headers']['authorization'] = "Basic %s" % base64.b64encode(auth)
 
     def _setup_methods(self):
         for i in ['get', 'head', 'put', 'post', 'delete', 'patch']:
