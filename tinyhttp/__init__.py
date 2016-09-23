@@ -487,7 +487,7 @@ class TinyHTTP(object):
             "scheme": scheme,
             "host": host,
             "port": port,
-            "host_port": "{}:{}".format(host, port),
+            "hostport": "{}:{}".format(host, port),
             "uri": path_query,
             "headers": {},
         }
@@ -498,7 +498,36 @@ class TinyHTTP(object):
         response = handler.read_response_header()
         body = handler.read_body(response)
         response["body"] = body
-        return response
+        redirection = self._maybe_redirect(request, response, args)
+        if redirection:
+            args['_redirects'].append(response)
+            print_debug("found redirection %s" % redirection[1])
+            return self._request(redirection[0], redirection[1], args)
+        else:
+            return response
+
+    def _maybe_redirect(self, request, response, args):
+        headers = response['headers']
+        method = request['method']
+        status = response['status']
+        args.setdefault("_redirects", [])
+
+        if (status == '303' or (status in ['301', '302', '307', '308']
+                                and method in ['GET', 'HEAD']))\
+           and 'location' in headers \
+           and len(args['_redirects']) < self.max_redirect:
+
+            location = headers['location']
+            if location.startswith("/"):
+                location = "%s://%s%s" % (request['scheme'],
+                                          request['hostport'],
+                                          location)
+            method = 'GET' if status == 303 else method
+            return (method, location)
+
+    def handle_redirect(response):
+        pass
+
 
     def _prepare_headers(self, request, args, url, auth):
         for k, v in args.get('headers', {}).items():
@@ -508,7 +537,7 @@ class TinyHTTP(object):
         if 'host' in request['headers']:
             raise Exception("Host can not be provided as header")
 
-        request['headers']["host"] = request['host_port']
+        request['headers']["host"] = request['hostport']
         if not self.keep_alive: request['headers']["connection"] = 'close'
         request['headers'].setdefault('user-agent', self.agent)
 
@@ -527,7 +556,7 @@ class TinyHTTP(object):
 
     def _setup_methods(self):
         for i in ['get', 'head', 'put', 'post', 'delete', 'patch']:
-            setattr(self, i, partial(self.request, i))
+            setattr(self, i, partial(self.request, i.upper()))
 
     def set_proxies(self):
         pass
