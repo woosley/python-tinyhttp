@@ -507,6 +507,10 @@ class TinyHTTP(object):
             return response
 
     def _maybe_redirect(self, request, response, args):
+        """ check if response is a redirection.
+
+        :return: tuple contains (METHOND, NEXT_URL), None if not a redirection
+        """
         headers = response['headers']
         method = request['method']
         status = response['status']
@@ -514,20 +518,19 @@ class TinyHTTP(object):
 
         if (status == '303' or (status in ['301', '302', '307', '308']
                                 and method in ['GET', 'HEAD']))\
-           and 'location' in headers \
-           and len(args['_redirects']) < self.max_redirect:
+           and 'location' in headers:
+
+            if len(args['_redirects']) >= self.max_redirect:
+                raise Exception("Max redirection exceeded")
 
             location = headers['location']
             if location.startswith("/"):
                 location = "%s://%s%s" % (request['scheme'],
                                           request['hostport'],
                                           location)
+            # 303 will convert POST to GET
             method = 'GET' if status == 303 else method
             return (method, location)
-
-    def handle_redirect(response):
-        pass
-
 
     def _prepare_headers(self, request, args, url, auth):
         for k, v in args.get('headers', {}).items():
